@@ -13,15 +13,15 @@ const uint8_t d2 = 2; //ms delay in display SPI between commands
 const float gammaInt = 2; //Gamma exponent for intensity
 const float gammaTime = 3; //Gamma exponent for time
 
-uint8_t Bmode = 0; //Saves the current mode of the blue laser (modulo-4) 0 = Manual; 1 = Scanimage sync; 2 = Ext. Trigger; 3 = Scanimage trigger
-uint8_t Rmode = 0; //Saves the current mode of the red laser 0 = Manual; 1 = Scanimage sync; 2 = Ext. Trigger; 3 = Scanimage trigger
+uint8_t Bmode = 0; //Saves the current mode of the blue laser 0 = Manual; 1 = Scanimage sync; 2 = Scanimage trigger; 3 = Ext. Trigger; 
+uint8_t Rmode = 0; //Saves the current mode of the red laser 0 = Manual; 1 = Scanimage sync; 2 = Scanimage trigger; 3 = Ext. Trigger;
 boolean Ron = 0; //Whether red laser is on
 boolean Bon = 0; //Whether blue laser is on
-char state[21] = "     ms     % Unlock";
+char state[21] = "     ms     % Unlock"; //Array for laser state - last index is for '\0' character at end of string
 uint16_t intB = 4; //Saves blue laser intensity 0-4095
 uint16_t intR = 4; //Saves red laser intensity 0-4095
-uint16_t timeR = 100; //Time for red laser to stay on
-uint16_t timeB = 1000; //Time for blue laser to stay on
+uint16_t timeR = 0; //Time for red laser to stay on
+uint16_t timeB = 0; //Time for blue laser to stay on
 uint8_t buttonIntB = 70; //Saves on intensity of blue button
 uint8_t buttonIntR = 255; //Saves on intensity of red button
 uint8_t buttonIn = 0; //Saves the button command 0 = red On, 1 = blue On, 2 = red program, 3 = blue program, 4 = display program
@@ -30,7 +30,8 @@ uint32_t displayOff = 500000; //Number of idle cycles before display is turned o
 boolean dispOn = 1; //Whether display is on or off
 boolean locked = 0; //Whether controls are locked or unlocked
 uint8_t debounce = 200; //Time delay after button press/release to wait for bouncing to stop
-boolean trigger = 0; //Recorded state of external trigger
+boolean trigger = 0; //Records whether pulse has been sent for current trigger
+uint16_t anaRead = 0; //Store analog pin value
 
 void setup() {
   // set up the ADC
@@ -52,6 +53,7 @@ void setup() {
   //Set both laser outputs to 0 intensity
   DACout(0,0);
   DACout(0,1);
+  latch();
 }
  
 void loop() {
@@ -61,27 +63,159 @@ void loop() {
     buttonPress();
     SPI.begin();
   }
-  if(nCycle > displayOff && dispOn){ //If inactivity timer runs out, turn off display
-    SPI.end();
-    command(B00001000); //turn off display
-    dispOn = 0;
-    SPI.begin();
-  }
-
-  nCycle++;
-  if(Bon | Ron) laserOut(); //Generate output if either laser is on
-  
-  
+  if(dispOn){ //If inactivity timer runs out, turn off display
+    nCycle++;
+    if(nCycle > displayOff){
+      SPI.end();
+      command(B00001000); //turn off display
+      dispOn = 0;
+      SPI.begin();
+    }
+  } 
+  if(Bon || Ron) laserOut(); //Generate output if either laser is on
 }
 
 void laserOut(){
-  //0 = Manual; 1 = Scanimage sync; 2 = Ext. Trigger; 3 = Scanimage trigger
+  //0 = Manual; 1 = Scanimage sync; 2 = Scanimage trigger; 3 = Ext. Trigger;
   if(Bon){ //If blue laser on
-    if(Bmode == 0) DACout(intB, 1);
-    if(Bmode == 1) DACout(analogRead(0)*4,1);
+    if(Bmode > 2){ //If ext. trigger
+      if(timeB){
+        if((PIND & B00000100) && !trigger){ //If pulse goes high, latch laser on for set time
+          trigger = 1;
+          latch();
+          delay(timeB);
+          DACout(0, 1);
+          latch();
+          DACout(intB, 1);
+        }
+        else if(!(PIND & B00000100) && trigger) trigger = 0; //If pulse goes low, reset trigger
+      }
+      else{ //If sync have duration match pulse duration
+        if((PIND & B00000100) && !trigger){ //If pulse goes high, latch laser on and load off value
+          trigger = 1;
+          latch();
+          DACout(0, 1);
+        }
+        else if((!(PIND & B00000100) && trigger)){ //If pulse goes low, latch laser off and load on value
+          trigger = 0;
+          latch();
+          DACout(intB, 1);
+        }       
+      }
+    }
+    else if(Bmode > 1){
+      anaRead = analogRead(0);
+      if(timeB){
+        if((anaRead > 10) && !trigger){ //If pulse goes high, latch laser on for set time
+          trigger = 1;
+          latch();
+          delay(timeB);
+          DACout(0, 1);
+          latch();
+          DACout(intB, 1);
+        }
+        else if((anaRead < 10) && trigger) trigger = 0; //If pulse goes low, reset trigger
+      }
+      else{ //If sync have duration match pulse duration
+        if((anaRead > 10) && !trigger){ //If pulse goes high, latch laser on and load off value
+          trigger = 1;
+          latch();
+          DACout(0, 1);
+        }
+        else if((anaRead < 10) && trigger){ //If pulse goes low, latch laser off and load on value
+          trigger = 0;
+          latch();
+          DACout(intB, 1);
+        }       
+      }
+    }
+    else if(Bmode){ //If scan sync
+      DACout(analogRead(0)*4,1);
+      latch();
+    } 
+    else{ //If manual
+      DACout(intB, 1);
+      if(timeB){ //If not sync, pulse laser for set time
+        latch();
+        DACout(0, 1);
+        delay(timeB);
+        latch();
+        SPI.end();
+        toggleLaser(0); //Turn off laser
+        SPI.begin(); 
+      }
+      else latch(); //If sync, hold at output
+    }
   }
-  else{
-    
+  else{ //If red laser on
+    if(Rmode > 2){ //If ext. trigger
+      if(timeR){
+        if((PIND & B00000100) && !trigger){ //If pulse goes high, latch laser on for set time
+          trigger = 1;
+          latch();
+          delay(timeR);
+          DACout(0, 0);
+          latch();
+          DACout(intR, 0);
+        }
+        else if((!(PIND & B00000100) && trigger)) trigger = 0; //If pulse goes low, reset trigger
+      }
+      else{ //If sync have duration match pulse duration
+        if((PIND & B00000100) && !trigger){ //If pulse goes high, latch laser on and load off value
+          trigger = 1;
+          latch();
+          DACout(0, 0);
+        }
+        else if((!(PIND & B00000100) && trigger)){ //If pulse goes low, latch laser off and load on value
+          trigger = 0;
+          latch();
+          DACout(intR, 0);
+        }       
+      }
+    }
+    else if(Rmode > 1){ //Scan tirgger
+      anaRead = analogRead(0);
+      if(timeR){
+        if((anaRead > 10) && !trigger){ //If pulse goes high, latch laser on for set time
+          trigger = 1;
+          latch();
+          delay(timeR);
+          DACout(0, 0);
+          latch();
+          DACout(intR, 0);
+        }
+        else if((anaRead < 10) && trigger) trigger = 0; //If pulse goes low, reset trigger
+      }
+      else{ //If sync have duration match pulse duration
+        if((anaRead > 10) && !trigger){ //If pulse goes high, latch laser on and load off value
+          trigger = 1;
+          latch();
+          DACout(0, 0);
+        }
+        else if((anaRead < 10) && trigger){ //If pulse goes low, latch laser off and load on value
+          trigger = 0;
+          latch();
+          DACout(intR, 0);
+        }       
+      }
+    }
+    else if(Rmode){
+      DACout(analogRead(0)*4,0);
+      latch();
+    }
+    else{ //If manual
+      DACout(intR, 0);
+      if(timeR > 0){ //If not sync, pulse laser for set time
+        latch();
+        DACout(0, 0);
+        delay(timeR);
+        latch();
+        SPI.end();
+        toggleLaser(2); //Turn off laser
+        SPI.begin(); 
+      }
+      else latch(); //If sync, hold at output
+    } 
   }
 }
 
@@ -103,11 +237,13 @@ void DACout(uint16_t intensity, uint16_t DAC){
   
     //Raise CS pin to mark end of commnication
     PORTB |= B00000001;
-  
-    //Latch value
-    PORTD &= B11110111;
-    PORTD &= B11110111;
-    PORTD |= B00001000; 
+}
+
+void latch(){
+  //Latch DAC value
+  PORTD &= B11110111;
+  PORTD &= B11110111;
+  PORTD |= B00001000; 
 }
 
 void buttonPress(){
@@ -298,19 +434,42 @@ void toggleLaser(uint8_t laser){
   SPI.begin();
   DACout(0,0);
   DACout(0,1);
+  latch();
   SPI.end();
   
   if(laser){ //If red laser
     Ron = !Ron;
-    if(Ron) analogWrite(5, buttonIntR);
-    else analogWrite(5, 0);
+    if(Ron){
+      analogWrite(5, buttonIntR);
+      SPI.begin();
+      DACout(intR, 0); //Preload value into DAC for tirgger
+      SPI.end();
+    }
+    else{
+      analogWrite(5, 0);
+      SPI.begin();
+      DACout(0, 0); //Ensure laser is off
+      SPI.end();
+      latch();
+    }
     command(155); //Move Cursor to R3, C10
     laser += Ron;
   }
   else{ //if blue laser
     Bon = !Bon;
-    if(Bon) analogWrite(6, buttonIntB);
-    else analogWrite(6, 0);
+    if(Bon){
+      analogWrite(6, buttonIntB);
+      SPI.begin();
+      DACout(intB, 1); //Preload value into DAC for tirgger
+      SPI.end();
+    }
+    else{
+      analogWrite(6, 0);
+      SPI.begin();
+      DACout(0, 1); //Ensure laser is off
+      SPI.end();
+      latch();
+    }
     command(135); //Move Cursor to R1, C10
     laser += Bon;
   }
@@ -395,6 +554,7 @@ void displayState(uint8_t laser){
     }
 
     if(laser & B00000100) state[0] = B11110110; //If in configure, add arrow to start of line
+    else state[0] = ' ';
     printStr(state);
   }
   else for(a=0; a<10; a++) printStr("- "); //if laser is off, display dashed lines 
@@ -402,17 +562,17 @@ void displayState(uint8_t laser){
   //Update mode
   if(laser & B00000010){ //If red laser move to R3, C12
     command(159);
-    if(Rmode%4 == 0) printStr("Manual   ");
-    else if(Rmode%4 == 1) printStr("Scan-Sync");
-    else if(Rmode%4 == 2) printStr("Scan-Trig");
-    else if(Rmode%4 == 3) printStr("Ext. Trig");
+    if(Rmode == 0) printStr("Manual   ");
+    else if(Rmode == 1) printStr("Scan-Sync");
+    else if(Rmode == 2) printStr("Scan-Trig");
+    else if(Rmode == 3) printStr("Ext. Trig");
   }
   else{
     command(139);
-    if(Bmode%4 == 0) printStr("Manual   ");
-    else if(Bmode%4 == 1) printStr("Scan-Sync");
-    else if(Bmode%4 == 2) printStr("Scan-Trig");
-    else if(Bmode%4 == 3) printStr("Ext. Trig");
+    if(Bmode == 0) printStr("Manual   ");
+    else if(Bmode == 1) printStr("Scan-Sync");
+    else if(Bmode == 2) printStr("Scan-Trig");
+    else if(Bmode == 3) printStr("Ext. Trig");
   }
 }
 
