@@ -12,6 +12,8 @@ const unsigned char PS_128 = (1 << ADPS2) | (1 << ADPS1) | (1 << ADPS0); //Defau
 const uint8_t d2 = 2; //ms delay in display SPI between commands
 const float gammaInt = 2; //Gamma exponent for intensity
 const float gammaTime = 3; //Gamma exponent for time
+const uint32_t displayOff = 500000; //Number of idle cycles before display is turned off - approx. 1,000,000 cycles = 3 seconds
+const uint8_t debounce = 200; //Time delay after button press/release to wait for bouncing to stop
 
 uint8_t Bmode = 0; //Saves the current mode of the blue laser 0 = Manual; 1 = Scanimage sync; 2 = Scanimage trigger; 3 = Ext. Trigger; 
 uint8_t Rmode = 0; //Saves the current mode of the red laser 0 = Manual; 1 = Scanimage sync; 2 = Scanimage trigger; 3 = Ext. Trigger;
@@ -26,10 +28,8 @@ uint8_t buttonIntB = 70; //Saves on intensity of blue button
 uint8_t buttonIntR = 255; //Saves on intensity of red button
 uint8_t buttonIn = 0; //Saves the button command 0 = red On, 1 = blue On, 2 = red program, 3 = blue program, 4 = display program
 uint32_t nCycle = 0; //Idle cycle counter
-uint32_t displayOff = 500000; //Number of idle cycles before display is turned off - approx. 1,000,000 cycles = 3 seconds
 boolean dispOn = 1; //Whether display is on or off
 boolean locked = 0; //Whether controls are locked or unlocked
-uint8_t debounce = 200; //Time delay after button press/release to wait for bouncing to stop
 boolean trigger = 0; //Records whether pulse has been sent for current trigger
 uint16_t anaRead = 0; //Store analog pin value
 
