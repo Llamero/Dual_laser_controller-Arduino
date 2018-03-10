@@ -1,0 +1,22 @@
+Port D:
+0-USB Rx
+1-USB Tx
+2-Trigger input
+3-DAC latch
+4-Red button input
+5-Red LED PWM
+6-Blue LED PWM
+7-Blue button input
+
+PORT B:
+8-DAC CS
+9-Display CS
+10-SPI:Arduino CS (unused)
+11-SPI:MOSI (data to DAC and display)
+12-SPI:MISO (status from display)
+13-SPI:SCK (clock for DAC and display)
+
+PORT C:
+A0-Pot1 input
+A1-Scanimage sync
+A2-Pot2 input
