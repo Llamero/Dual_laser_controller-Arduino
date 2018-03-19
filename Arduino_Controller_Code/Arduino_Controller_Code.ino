@@ -1,6 +1,7 @@
 //Import the SPI library
 #include <SPI.h>;
 
+//CONSTANTS
 // Define various ADC prescaler
 //const unsigned char PS_2 = (1 << ADPS0); //Does not seem to work, ADC stops.
 const unsigned char PS_4 = (1 << ADPS1);
@@ -14,7 +15,12 @@ const float gammaInt = 2; //Gamma exponent for intensity
 const float gammaTime = 3; //Gamma exponent for time
 const uint32_t displayOff = 500000; //Number of idle cycles before display is turned off - approx. 1,000,000 cycles = 3 seconds
 const uint8_t debounce = 200; //Time delay after button press/release to wait for bouncing to stop
+const uint8_t buttonIntB = 70; //Saves on intensity of blue button
+const uint8_t buttonIntR = 255; //Saves on intensity of red button
+const uint16_t syncOn = 10; //ADC value when laser is turned on 0-5V = 0-1024
+const uint16_t syncOff = 10; //ADC value when laser is turned off 0-5V = 0-1024
 
+//VARAIBLES
 uint8_t Bmode = 0; //Saves the current mode of the blue laser 0 = Manual; 1 = Scanimage sync; 2 = Scanimage trigger; 3 = Ext. Trigger; 
 uint8_t Rmode = 0; //Saves the current mode of the red laser 0 = Manual; 1 = Scanimage sync; 2 = Scanimage trigger; 3 = Ext. Trigger;
 boolean Ron = 0; //Whether red laser is on
@@ -24,8 +30,6 @@ uint16_t intB = 4; //Saves blue laser intensity 0-4095
 uint16_t intR = 4; //Saves red laser intensity 0-4095
 uint16_t timeR = 0; //Time for red laser to stay on
 uint16_t timeB = 0; //Time for blue laser to stay on
-uint8_t buttonIntB = 70; //Saves on intensity of blue button
-uint8_t buttonIntR = 255; //Saves on intensity of red button
 uint8_t buttonIn = 0; //Saves the button command 0 = red On, 1 = blue On, 2 = red program, 3 = blue program, 4 = display program
 uint32_t nCycle = 0; //Idle cycle counter
 boolean dispOn = 1; //Whether display is on or off
@@ -176,7 +180,7 @@ void laserOut(){
     else if(Rmode > 1){ //Scan tirgger
       anaRead = analogRead(0);
       if(timeR){
-        if((anaRead > 10) && !trigger){ //If pulse goes high, latch laser on for set time
+        if((anaRead > syncOn) && !trigger){ //If pulse goes high, latch laser on for set time
           trigger = 1;
           latch();
           delay(timeR);
@@ -184,15 +188,15 @@ void laserOut(){
           latch();
           DACout(intR, 0);
         }
-        else if((anaRead < 10) && trigger) trigger = 0; //If pulse goes low, reset trigger
+        else if((anaRead < syncOff) && trigger) trigger = 0; //If pulse goes low, reset trigger
       }
       else{ //If sync have duration match pulse duration
-        if((anaRead > 10) && !trigger){ //If pulse goes high, latch laser on and load off value
+        if((anaRead > syncOn) && !trigger){ //If pulse goes high, latch laser on and load off value
           trigger = 1;
           latch();
           DACout(0, 0);
         }
-        else if((anaRead < 10) && trigger){ //If pulse goes low, latch laser off and load on value
+        else if((anaRead < syncOff) && trigger){ //If pulse goes low, latch laser off and load on value
           trigger = 0;
           latch();
           DACout(intR, 0);
